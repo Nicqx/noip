@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noip-ddns-config
+data:
+  ddns.conf: |
+    DDNS_UPDATE_URL="https://dynupdate.no-ip.com/nic/update"
+    DDNS_HOSTNAME="pmqxyz.hopto.org"
+    IP_CHECK_URL="https://api.ipify.org"
+    CHECK_INTERVAL_SECONDS="300"
+    CURL_USER_AGENT="k8s-noip-updater/1.0"
+
+  update.sh: |
+    #!/bin/sh
+    set -eu
+
+    CONFIG_FILE="/opt/ddns/ddns.conf"
+    SECRET_FILE="/opt/secret/credentials.conf"
+    STATE_FILE="/state/last_ip"
+
+    log() {
+      echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $*"
+    }
+
+    [ -f "$CONFIG_FILE" ] || { echo "Missing $CONFIG_FILE" >&2; exit 1; }
+    [ -f "$SECRET_FILE" ] || { echo "Missing $SECRET_FILE" >&2; exit 1; }
+
+    . "$CONFIG_FILE"
+    . "$SECRET_FILE"
+
+    : "${DDNS_UPDATE_URL:?DDNS_UPDATE_URL is required}"
+    : "${DDNS_HOSTNAME:?DDNS_HOSTNAME is required}"
+    : "${DDNS_USERNAME:?DDNS_USERNAME is required}"
+    : "${DDNS_PASSWORD:?DDNS_PASSWORD is required}"
+    : "${IP_CHECK_URL:?IP_CHECK_URL is required}"
+    : "${CHECK_INTERVAL_SECONDS:=300}"
+    : "${CURL_USER_AGENT:=k8s-noip-updater/1.0}"
+
+    mkdir -p /state
+
+    while true; do
+      if ! CURRENT_IP="$(curl -fsSL "$IP_CHECK_URL" | tr -d '\r\n')"; then
+        log "Nem sikerült lekérni a publikus IP-t."
+        sleep "$CHECK_INTERVAL_SECONDS"
+        continue
+      fi
+
+      if [ -z "$CURRENT_IP" ]; then
+        log "Üres IP választ kaptam."
+        sleep "$CHECK_INTERVAL_SECONDS"
+        continue
+      fi
+
+      LAST_IP=""
+      if [ -f "$STATE_FILE" ]; then
+        LAST_IP="$(cat "$STATE_FILE" 2>/dev/null || true)"
+      fi
+
+      if [ "$CURRENT_IP" = "$LAST_IP" ]; then
+        log "IP változatlan: $CURRENT_IP"
+        sleep "$CHECK_INTERVAL_SECONDS"
+        continue
+      fi
+
+      UPDATE_URL="${DDNS_UPDATE_URL}?hostname=${DDNS_HOSTNAME}&myip=${CURRENT_IP}"
+      log "IP változott (${LAST_IP:-nincs} -> $CURRENT_IP), No-IP frissítés indul."
+
+      if RESPONSE="$(curl -fsS \
+        -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" \
+        -A "$CURL_USER_AGENT" \
+        "$UPDATE_URL" | tr -d '\r')"; then
+
+        case "$RESPONSE" in
+          good*|nochg*)
+            printf "%s" "$CURRENT_IP" > "$STATE_FILE"
+            log "Sikeres No-IP frissítés: $RESPONSE"
+            ;;
+          *)
+            log "A No-IP válasza nem sikeres: $RESPONSE"
+            ;;
+        esac
+      else
+        log "HTTP hiba a No-IP frissítés közben."
+      fi
+
+      sleep "$CHECK_INTERVAL_SECONDS"
+    done

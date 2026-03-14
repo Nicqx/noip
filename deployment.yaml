@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: noip-ddns-updater
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: noip-ddns-updater
+  template:
+    metadata:
+      labels:
+        app: noip-ddns-updater
+    spec:
+      containers:
+        - name: noip-ddns-updater
+          image: curlimages/curl:8.5.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/opt/ddns/update.sh"]
+          volumeMounts:
+            - name: ddns-config
+              mountPath: /opt/ddns
+              readOnly: true
+            - name: ddns-secret
+              mountPath: /opt/secret
+              readOnly: true
+            - name: ddns-state
+              mountPath: /state
+      volumes:
+        - name: ddns-config
+          configMap:
+            name: noip-ddns-config
+            defaultMode: 0555
+        - name: ddns-secret
+          secret:
+            secretName: noip-ddns-secret
+            defaultMode: 0444
+        - name: ddns-state
+          emptyDir: {}
