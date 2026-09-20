@@ -80,3 +80,21 @@ A korábbi három önálló YAML helyett az update generálja a konfigurációt.
 Teszt: `python3 -m unittest discover -s tests -v`.
 
 Forrás: [No-IP válaszkódok](https://www.noip.com/integrate/response).
+
+## Migráció, leállítás és eltávolítás
+
+A DDNS-frissítőnek nincs PVC-je. Migrációnál másold át biztonságos csatornán a lokális `secret.yaml`/konfigurációt (ne commitold), telepítsd a NUC-on, ellenőrizd a naplót, és csak utána állítsd le a régi példányt. Egyszerre csak egy aktív frissítő legyen.
+
+```bash
+# ideiglenes leállítás / visszaindítás
+sudo k3s kubectl scale deployment/noip-ddns-updater -n default --replicas=0
+sudo k3s kubectl scale deployment/noip-ddns-updater -n default --replicas=1
+
+# alkalmazás eltávolítása, a Secret megtartásával
+sudo k3s kubectl delete deployment/noip-ddns-updater configmap/noip-ddns-config -n default
+
+# teljes eltávolítás – a credential végleg eltűnik a clusterből
+sudo k3s kubectl delete secret/noip-ddns-secret -n default
+```
+
+Rollbackhoz használd az update által kiírt manifestmentést. A Secretet és a helyi credential-fájlt `0600` jogosultsággal kezeld.
