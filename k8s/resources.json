@@ -1,0 +1,16 @@
+[
+  {"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"noip-ddns-config"},"data":{}},
+  {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"noip-ddns-updater"},"spec":{
+    "replicas":0,"strategy":{"type":"Recreate"},"selector":{"matchLabels":{"app":"noip-ddns-updater"}},
+    "template":{"metadata":{"labels":{"app":"noip-ddns-updater"}},"spec":{
+      "automountServiceAccountToken":false,
+      "securityContext":{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"fsGroup":1000,"seccompProfile":{"type":"RuntimeDefault"}},
+      "containers":[{"name":"noip-ddns-updater","image":"python:3.13-alpine@sha256:1a63a53928ce53d2b0baf08092a703f4840ac5dfbd61fd48802dbf48e08c801e","imagePullPolicy":"IfNotPresent",
+        "command":["python3","-B","-u","/opt/ddns/updater.py"],
+        "securityContext":{"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}},
+        "resources":{"requests":{"cpu":"10m","memory":"32Mi"},"limits":{"cpu":"200m","memory":"96Mi"}},
+        "volumeMounts":[{"name":"config","mountPath":"/opt/ddns","readOnly":true},{"name":"secret","mountPath":"/opt/secret","readOnly":true},{"name":"state","mountPath":"/state"}]}],
+      "volumes":[{"name":"config","configMap":{"name":"noip-ddns-config"}},{"name":"secret","secret":{"secretName":"noip-ddns-secret","defaultMode":288}},{"name":"state","emptyDir":{"sizeLimit":"1Mi"}}]
+    }}
+  }}
+]
